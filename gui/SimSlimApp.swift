@@ -10,10 +10,10 @@ struct SimSlimApp: App {
       ContentView()
         .environmentObject(model)
         .background(ToolbarDisplayModeConfigurator().frame(width: 0, height: 0))
-        .frame(minWidth: 1080, minHeight: 700)
+        .frame(minWidth: 1280, minHeight: 700)
         .task { await model.load() }
     }
-    .defaultSize(width: 1260, height: 820)
+    .defaultSize(width: 1340, height: 820)
     .windowStyle(.titleBar)
     .windowToolbarStyle(.unified(showsTitle: false))
     .commands {

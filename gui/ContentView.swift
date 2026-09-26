@@ -53,6 +53,9 @@ struct ContentView: View {
         Divider()
         ActivityPanel()
       }
+      // The table's fixed columns, spacing and padding need 930pt; below that
+      // the rows get squeezed and wrap, so the split view must not go narrower.
+      .frame(minWidth: 930)
       .background(Color(nsColor: .windowBackgroundColor))
     }
     .toolbar {
