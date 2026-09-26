@@ -7,6 +7,7 @@ type DeviceSummary struct {
 	Device
 	ManagedDisabled *int         `json:"managedDisabled,omitempty"`
 	ManagedTotal    int          `json:"managedTotal"`
+	Persistent      bool         `json:"persistent"` // the runtime keeps disabled state across reboot
 	StatusError     string       `json:"statusError,omitempty"`
 	Memory          *Measurement `json:"memory,omitempty"`
 	MemoryError     string       `json:"memoryError,omitempty"`

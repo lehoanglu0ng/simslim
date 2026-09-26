@@ -86,7 +86,7 @@ func cmdList(ctx context.Context, cmd *cli.Command) error {
 	summaries := make([]simslim.DeviceSummary, 0, len(devices))
 	for _, d := range devices {
 		tag := "shutdown"
-		summary := simslim.DeviceSummary{Device: d, ManagedTotal: managed}
+		summary := simslim.DeviceSummary{Device: d, ManagedTotal: managed, Persistent: simslim.PersistentOverridesSupported(d.OSVersion)}
 		if d.State == "Booted" {
 			tag = "booted"
 			if measurement, ok := memoryByUDID[d.UDID]; ok {
@@ -771,9 +771,13 @@ func cmdOn(ctx context.Context, cmd *cli.Command) error {
 	startedShutdown := device.State == "Shutdown"
 	originallyShutdown := preserveBootState && startedShutdown
 
-	if startedShutdown {
+	// EnableSlim rejects a slim profile on a runtime without persistent
+	// overrides before touching the device, so don't announce work it won't do.
+	switch {
+	case len(p.Desired()) > 0 && !simslim.PersistentOverridesSupported(device.OSVersion):
+	case startedShutdown:
 		fmt.Fprintf(os.Stderr, "Slimming %s: disabling %d background services while it is off, then booting it slim.\n", udid, len(p.Desired()))
-	} else {
+	default:
 		fmt.Fprintf(os.Stderr, "Slimming %s: disabling %d background services. The simulator will reboot to apply the changes.\n", udid, len(p.Desired()))
 	}
 	changed, operationErr := simslim.EnableSlim(tctx, device.Set, udid, p, report)

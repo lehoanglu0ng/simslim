@@ -19,6 +19,7 @@ final class AppModel: ObservableObject {
   @Published var keptServiceLabels: Set<String> = []
   @Published var selectedDiskCleanupCategoryIDs: Set<String> = []
   @Published var preserveBootState = true
+  @Published var slimWithoutReboot = false
   @Published var presentedError: PresentedError?
 
   private let backend: SimSlimBackend?
@@ -592,7 +593,8 @@ final class AppModel: ObservableObject {
         udid: device.udid,
         exceptCategories: keptCategoryIDs,
         keepLabels: keptServiceLabels,
-        preserveBootState: preserveBootState
+        preserveBootState: preserveBootState,
+        noReboot: slimWithoutReboot || !device.persistent
       )
       setCachedDisabled(disabledDaemonCount, for: device.udid)
       record(.success, "Updated \(device.name): \(summaryLine(output))")

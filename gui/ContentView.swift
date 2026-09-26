@@ -786,6 +786,16 @@ private struct ProfileSidebar: View {
       .foregroundStyle(.secondary)
       .fixedSize(horizontal: false, vertical: true)
 
+      Toggle("Slim without reboot", isOn: $model.slimWithoutReboot)
+        .font(.subheadline.weight(.medium))
+        .disabled(model.isBusy)
+      Text(
+        "Stops the services in the current boot session only. Always used on iOS below 18.5, where the simulator returns to stock at its next boot."
+      )
+      .font(.caption)
+      .foregroundStyle(.secondary)
+      .fixedSize(horizontal: false, vertical: true)
+
       VStack(alignment: .leading, spacing: 7) {
         Label("\(model.disabledDaemonCount) services will be disabled", systemImage: "circle")
           .font(.subheadline.weight(.semibold))

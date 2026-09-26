@@ -83,7 +83,8 @@ struct SimSlimBackend {
     udid: String,
     exceptCategories: Set<String>,
     keepLabels: Set<String>,
-    preserveBootState: Bool
+    preserveBootState: Bool,
+    noReboot: Bool
   ) async throws -> String {
     var arguments = ["on"]
     if !exceptCategories.isEmpty {
@@ -92,7 +93,10 @@ struct SimSlimBackend {
     if !keepLabels.isEmpty {
       arguments.append(contentsOf: ["--keep", keepLabels.sorted().joined(separator: ",")])
     }
-    if preserveBootState {
+    // The CLI rejects the pair: shutting the device down discards a no-reboot slim.
+    if noReboot {
+      arguments.append("--no-reboot")
+    } else if preserveBootState {
       arguments.append("--preserve-boot-state")
     }
     arguments.append(udid)

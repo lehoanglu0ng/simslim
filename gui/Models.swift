@@ -14,6 +14,8 @@ struct SimulatorDevice: Decodable, Identifiable, Equatable {
   let osVersion: String
   let managedDisabled: Int?
   let managedTotal: Int
+  /// False below iOS 18.5: a slim can only last the current boot session.
+  let persistent: Bool
   let statusError: String?
   let memory: SimulatorMeasurement?
   let memoryError: String?
