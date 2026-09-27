@@ -27,6 +27,8 @@ type Device struct {
 	OSVersion string `json:"osVersion"`
 	Set       string `json:"set"`
 	DataPath  string `json:"-"`
+	// LastBootedAt is zero for a simulator that has never booted.
+	LastBootedAt time.Time `json:"lastBootedAt,omitzero"`
 }
 
 type deviceSetInfo struct {
@@ -114,6 +116,8 @@ func listDevicesInSet(ctx context.Context, set deviceSetInfo) ([]Device, error) 
 			State       string `json:"state"`
 			IsAvailable bool   `json:"isAvailable"`
 			DataPath    string `json:"dataPath"`
+			// Kept as a string so an unexpected format drops the timestamp, not the listing.
+			LastBootedAt string `json:"lastBootedAt"`
 		} `json:"devices"`
 	}
 	if err := json.Unmarshal(out, &parsed); err != nil {
@@ -128,7 +132,8 @@ func listDevicesInSet(ctx context.Context, set deviceSetInfo) ([]Device, error) 
 			if !d.IsAvailable {
 				continue
 			}
-			devices = append(devices, Device{UDID: d.UDID, Name: d.Name, State: d.State, OSVersion: osVersion(runtime), Set: set.name, DataPath: d.DataPath})
+			lastBooted, _ := time.Parse(time.RFC3339, d.LastBootedAt)
+			devices = append(devices, Device{UDID: d.UDID, Name: d.Name, State: d.State, OSVersion: osVersion(runtime), Set: set.name, DataPath: d.DataPath, LastBootedAt: lastBooted})
 		}
 	}
 	return devices, nil

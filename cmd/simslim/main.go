@@ -47,6 +47,21 @@ func main() {
 	}
 }
 
+// sortByRecentUse puts the most recently booted simulators first; never-booted
+// ones (zero LastBootedAt) fall to the end, newest OS then name among ties.
+func sortByRecentUse(devices []simslim.Device) {
+	sort.SliceStable(devices, func(i, j int) bool {
+		a, b := devices[i], devices[j]
+		if !a.LastBootedAt.Equal(b.LastBootedAt) {
+			return a.LastBootedAt.After(b.LastBootedAt)
+		}
+		if a.OSVersion != b.OSVersion {
+			return a.OSVersion > b.OSVersion
+		}
+		return a.Name < b.Name
+	})
+}
+
 func cmdList(ctx context.Context, cmd *cli.Command) error {
 	jsonOutput := cmd.Bool("json")
 	if cmd.Args().Len() != 0 {
@@ -65,12 +80,7 @@ func cmdList(ctx context.Context, cmd *cli.Command) error {
 		}
 		devices = booted
 	}
-	sort.Slice(devices, func(i, j int) bool {
-		if devices[i].OSVersion != devices[j].OSVersion {
-			return devices[i].OSVersion > devices[j].OSVersion
-		}
-		return devices[i].Name < devices[j].Name
-	})
+	sortByRecentUse(devices)
 	managed := len(simslim.SlimmableSet())
 	memoryByUDID := map[string]simslim.Measurement{}
 	memoryErrors := map[string]string{}
