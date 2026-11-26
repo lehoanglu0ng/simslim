@@ -155,6 +155,77 @@ func TestDeltaRepairsRequiredEnabledLabels(t *testing.T) {
 	}
 }
 
+func TestGamedStaysEnabledForXCTest(t *testing.T) {
+	const label = "com.apple.gamed"
+	desired := (Profile{}).Desired()
+	if SlimmableSet()[label] || desired[label] {
+		t.Error("gamed must stay enabled: disabling it delays XCUITest app launches")
+	}
+	apps, ok := CategoryByID("apps")
+	if !ok {
+		t.Fatal("apps category is missing")
+	}
+	found := false
+	for _, service := range apps.AlwaysEnabled {
+		if service.Label == label && strings.TrimSpace(service.Reason) != "" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("apps must explain why gamed stays enabled")
+	}
+	_, toEnable := delta(map[string]bool{label: true}, desired, managedSet())
+	if !reflect.DeepEqual(toEnable, []string{label}) {
+		t.Errorf("legacy disabled gamed repair = %v, want [%s]", toEnable, label)
+	}
+	for _, other := range []string{"com.apple.gamesaved", "com.apple.GameController.gamecontrollerd"} {
+		if !desired[other] {
+			t.Errorf("unrelated game service %q should remain slimmable", other)
+		}
+	}
+}
+
+func TestAssistantdStaysEnabledForSpotlight(t *testing.T) {
+	const label = "com.apple.assistantd"
+	desired := (Profile{}).Desired()
+	if SlimmableSet()[label] || desired[label] {
+		t.Error("assistantd must stay enabled: without its dictation service Spotlight leaks memory")
+	}
+	siri, ok := CategoryByID("siri")
+	if !ok {
+		t.Fatal("siri category is missing")
+	}
+	found := false
+	for _, service := range siri.AlwaysEnabled {
+		if service.Label == label && strings.TrimSpace(service.Reason) != "" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("siri must explain why assistantd stays enabled")
+	}
+	_, toEnable := delta(map[string]bool{label: true}, desired, managedSet())
+	if !reflect.DeepEqual(toEnable, []string{label}) {
+		t.Errorf("legacy disabled assistantd repair = %v, want [%s]", toEnable, label)
+	}
+	for _, other := range []string{"com.apple.assistant_service", "com.apple.corespeechd", "com.apple.siriknowledged"} {
+		if !desired[other] {
+			t.Errorf("other Siri service %q should remain slimmable", other)
+		}
+	}
+}
+
+func TestWidgetsKeepNavdForMapsWidget(t *testing.T) {
+	const label = "com.apple.navd"
+	widgets := Profile{ExceptCategories: map[string]bool{"widgets": true}, Keep: map[string]bool{}}
+	if widgets.Desired()[label] {
+		t.Error("--except widgets must keep navd enabled: the Maps widget spins without it")
+	}
+	if !(Profile{}).Desired()[label] {
+		t.Error("navd should remain slimmable when widgets are disabled")
+	}
+}
+
 func TestCategoriesHaveUserImpactMetadata(t *testing.T) {
 	for _, c := range Categories {
 		if c.Downside == "" {

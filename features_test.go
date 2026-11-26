@@ -5,15 +5,15 @@ import (
 	"testing"
 )
 
-func TestFeatureLabelsAreSlimmable(t *testing.T) {
-	slimmable := SlimmableSet()
+func TestFeatureLabelsAreManaged(t *testing.T) {
+	managed := managedSet()
 	for _, f := range Features {
 		if len(f.Labels) == 0 {
 			t.Errorf("feature %q has no labels", f.ID)
 		}
 		for _, l := range f.Labels {
-			if !slimmable[l] {
-				t.Errorf("feature %q names %q, which no category disables", f.ID, l)
+			if !managed[l] {
+				t.Errorf("feature %q names unmanaged daemon %q", f.ID, l)
 			}
 		}
 	}
@@ -45,6 +45,62 @@ func TestResolveFeatures(t *testing.T) {
 	}
 	if _, err := ResolveFeatures([]string{"push", "nope"}); err == nil {
 		t.Error("ResolveFeatures(unknown) error = nil, want error")
+	}
+}
+
+func TestGameCenterDiagnosesLegacyDisabledGamed(t *testing.T) {
+	features, err := ResolveFeatures([]string{"game-center"})
+	if err != nil {
+		t.Fatalf("ResolveFeatures(game-center) error = %v", err)
+	}
+	if !DiagnoseFeatures(features, map[string]bool{}).OK {
+		t.Error("game-center should be healthy with gamed enabled")
+	}
+	report := DiagnoseFeatures(features, map[string]bool{"com.apple.gamed": true})
+	if report.OK || len(report.Features) != 1 || !reflect.DeepEqual(report.Features[0].Disabled, []string{"com.apple.gamed"}) {
+		t.Errorf("doctor must still report legacy disabled gamed: %+v", report)
+	}
+}
+
+func TestWidgetsDiagnoseDisabledNavd(t *testing.T) {
+	features, err := ResolveFeatures([]string{"widgets"})
+	if err != nil {
+		t.Fatalf("ResolveFeatures(widgets) error = %v", err)
+	}
+	if !DiagnoseFeatures(features, map[string]bool{}).OK {
+		t.Error("widgets should be healthy with navd enabled")
+	}
+	report := DiagnoseFeatures(features, map[string]bool{"com.apple.navd": true})
+	if report.OK || len(report.Features) != 1 || !reflect.DeepEqual(report.Features[0].Disabled, []string{"com.apple.navd"}) {
+		t.Errorf("doctor must report widgets kept without navd: %+v", report)
+	}
+}
+
+func TestFilesRecentsDiagnoseDisabledSearchd(t *testing.T) {
+	features, err := ResolveFeatures([]string{"files-recents"})
+	if err != nil {
+		t.Fatalf("ResolveFeatures(files-recents) error = %v", err)
+	}
+	if !DiagnoseFeatures(features, map[string]bool{"com.apple.searchtoold": true}).OK {
+		t.Error("files-recents should be healthy with searchd enabled")
+	}
+	report := DiagnoseFeatures(features, map[string]bool{"com.apple.searchd": true})
+	if report.OK || len(report.Features) != 1 || !reflect.DeepEqual(report.Features[0].Disabled, []string{"com.apple.searchd"}) {
+		t.Errorf("doctor must report Files Recents without searchd: %+v", report)
+	}
+}
+
+func TestSlimProfileReportsMDMAndAppClipsUntilExcepted(t *testing.T) {
+	features, err := ResolveFeatures([]string{"mdm", "app-clips"})
+	if err != nil {
+		t.Fatalf("ResolveFeatures(mdm, app-clips) error = %v", err)
+	}
+	if report := DiagnoseFeatures(features, (Profile{}).Desired()); report.OK {
+		t.Errorf("a full slim profile must break MDM and App Clips: %+v", report)
+	}
+	kept := Profile{ExceptCategories: map[string]bool{"mdm": true, "other": true}}
+	if report := DiagnoseFeatures(features, kept.Desired()); !report.OK {
+		t.Errorf("--except mdm,other must keep MDM and App Clips: %+v", report)
 	}
 }
 

@@ -3,7 +3,9 @@ package simslim
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 )
@@ -27,9 +29,18 @@ func LoadSlimProfile(path string) (Profile, error) {
 	dec.DisallowUnknownFields()
 	var sp SlimProfile
 	if err := dec.Decode(&sp); err != nil {
-		return Profile{}, fmt.Errorf("parse profile %s: %w", path, err)
+		return Profile{}, parseProfileError(path, err)
 	}
 	return sp.resolve(path)
+}
+
+// parseProfileError explains a profile file that does not decode; an empty
+// file would otherwise only say "EOF".
+func parseProfileError(path string, err error) error {
+	if errors.Is(err, io.EOF) {
+		return fmt.Errorf("profile %s is empty; write {} for the default profile", path)
+	}
+	return fmt.Errorf("parse profile %s: %w", path, err)
 }
 
 // resolve turns a parsed SlimProfile into the validated Profile it selects.
@@ -44,13 +55,15 @@ func (sp SlimProfile) resolve(path string) (Profile, error) {
 		}
 		p.ExceptCategories[id] = true
 	}
-	slimmable := SlimmableSet()
+	// Accept keep entries for required services too: profiles written as
+	// workarounds before a service became AlwaysEnabled must remain valid.
+	managed := managedSet()
 	for _, label := range sp.Keep {
 		if label = strings.TrimSpace(label); label == "" {
 			continue
 		}
-		if !slimmable[label] {
-			return Profile{}, fmt.Errorf("profile %s: %q is not a daemon any category disables (see `simslim profiles`)", path, label)
+		if !managed[label] {
+			return Profile{}, fmt.Errorf("profile %s: %q is not a managed daemon (see `simslim profiles`)", path, label)
 		}
 		p.Keep[label] = true
 	}

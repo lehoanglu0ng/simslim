@@ -11,6 +11,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/mattn/go-isatty"
 	"github.com/mobai-app/simslim"
@@ -36,7 +37,7 @@ func main() {
 	}
 
 	if runtime.GOOS != "darwin" {
-		fatal("simslim only works on macOS (it drives Apple's iOS simulators).")
+		fatal("simslim only works on macOS (it drives Apple's simulators).")
 	}
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
@@ -81,7 +82,6 @@ func cmdList(ctx context.Context, cmd *cli.Command) error {
 		devices = booted
 	}
 	sortByRecentUse(devices)
-	managed := len(simslim.SlimmableSet())
 	memoryByUDID := map[string]simslim.Measurement{}
 	memoryErrors := map[string]string{}
 	if jsonOutput {
@@ -95,8 +95,9 @@ func cmdList(ctx context.Context, cmd *cli.Command) error {
 	}
 	summaries := make([]simslim.DeviceSummary, 0, len(devices))
 	for _, d := range devices {
+		managed := len((simslim.Profile{}).DesiredForDevice(d))
 		tag := "shutdown"
-		summary := simslim.DeviceSummary{Device: d, ManagedTotal: managed, Persistent: simslim.PersistentOverridesSupported(d.OSVersion)}
+		summary := simslim.DeviceSummary{Device: d, ManagedTotal: managed, Persistent: d.SupportsPersistentOverrides()}
 		if d.State == "Booted" {
 			tag = "booted"
 			if measurement, ok := memoryByUDID[d.UDID]; ok {
@@ -114,7 +115,7 @@ func cmdList(ctx context.Context, cmd *cli.Command) error {
 		}
 		summaries = append(summaries, summary)
 		if !jsonOutput {
-			line := fmt.Sprintf("%s  %-22s iOS %-6s %s", d.UDID, truncate(d.Name, 22), d.OSVersion, tag)
+			line := fmt.Sprintf("%s  %-22s %-14s %s", d.UDID, truncate(d.Name, 22), d.RuntimeName(), tag)
 			if d.Set != "" && d.Set != "default" {
 				line += "  (" + d.Set + ")"
 			}
@@ -297,7 +298,7 @@ func cmdVerify(ctx context.Context, cmd *cli.Command) error {
 			return err
 		}
 	} else if r.OK {
-		fmt.Printf("%s matches the profile: all %d expected daemons disabled.\n", udid, len(p.Desired()))
+		fmt.Printf("%s matches the profile: all expected disable overrides are applied.\n", udid)
 	} else {
 		fmt.Printf("%s does not match the profile (%d missing, %d extra):\n", udid, len(r.Missing), len(r.Extra))
 		for _, l := range r.Missing {
@@ -784,11 +785,11 @@ func cmdOn(ctx context.Context, cmd *cli.Command) error {
 	// EnableSlim rejects a slim profile on a runtime without persistent
 	// overrides before touching the device, so don't announce work it won't do.
 	switch {
-	case len(p.Desired()) > 0 && !simslim.PersistentOverridesSupported(device.OSVersion):
+	case len(p.DesiredForDevice(device)) > 0 && !device.SupportsPersistentOverrides():
 	case startedShutdown:
-		fmt.Fprintf(os.Stderr, "Slimming %s: disabling %d background services while it is off, then booting it slim.\n", udid, len(p.Desired()))
+		fmt.Fprintf(os.Stderr, "Slimming %s: disabling %d background services while it is off, then booting it slim.\n", udid, len(p.DesiredForDevice(device)))
 	default:
-		fmt.Fprintf(os.Stderr, "Slimming %s: disabling %d background services. The simulator will reboot to apply the changes.\n", udid, len(p.Desired()))
+		fmt.Fprintf(os.Stderr, "Slimming %s: disabling %d background services. The simulator will reboot to apply the changes.\n", udid, len(p.DesiredForDevice(device)))
 	}
 	changed, operationErr := simslim.EnableSlim(tctx, device.Set, udid, p, report)
 	if originallyShutdown {
@@ -826,7 +827,7 @@ func cmdOn(ctx context.Context, cmd *cli.Command) error {
 // The closing line says what the next boot brings, since on iOS < 18.5 the
 // state is gone after a reboot and someone will otherwise report that as a bug.
 func onNoReboot(ctx context.Context, device simslim.Device, p simslim.Profile, report simslim.Reporter) error {
-	fmt.Fprintf(os.Stderr, "Slimming %s for this boot session: stopping %d background services without a reboot.\n", device.UDID, len(p.Desired()))
+	fmt.Fprintf(os.Stderr, "Slimming %s for this boot session: stopping %d background services without a reboot.\n", device.UDID, len(p.DesiredForDevice(device)))
 	changed, err := simslim.EnableSlimNoReboot(ctx, device.Set, device.UDID, p, report)
 	if err != nil {
 		return err
@@ -836,26 +837,37 @@ func onNoReboot(ctx context.Context, device simslim.Device, p simslim.Profile, r
 	} else {
 		fmt.Println("Already slim. Confirmed every profiled daemon is stopped for this boot session.")
 	}
-	if simslim.PersistentOverridesSupported(device.OSVersion) {
+	if device.SupportsPersistentOverrides() {
 		fmt.Println("The disable overrides are also stored, so the next boot should come up slim; `simslim verify` after a reboot confirms it.")
 	} else {
-		fmt.Printf("iOS %s cannot persist overrides: the simulator returns to stock at its next boot, so re-run this command after every boot.\n", device.OSVersion)
+		fmt.Printf("%s cannot persist overrides: the simulator returns to stock at its next boot, so re-run this command after every boot.\n", device.RuntimeName())
 	}
 	return nil
 }
 
-// cmdWatch slims every simulator no-reboot as it boots, until Ctrl-C. It is the
-// hook for xcodebuild parallel-testing clones, which are created stock and
-// deleted per run: point --set at the parallel-testing device set and run this
-// alongside the test invocation.
+// cmdWatch slims every simulator until Ctrl-C: a shut-down one before it boots,
+// by writing its launchd overrides, and every one no-reboot as it boots. It is
+// also the hook for xcodebuild parallel-testing clones, which are created stock
+// and deleted per run: point --set at the parallel-testing device set and run
+// this alongside the test invocation.
 func cmdWatch(ctx context.Context, cmd *cli.Command) error {
 	p, err := simslim.BuildProfile(cmd.String("profile"), cmd.String("except"), cmd.String("keep"))
 	if err != nil {
 		return err
 	}
+	if cmd.Bool("json") {
+		var mu sync.Mutex
+		encoder := json.NewEncoder(os.Stdout)
+		events := func(e simslim.WatchEvent) {
+			mu.Lock()
+			defer mu.Unlock()
+			_ = encoder.Encode(e)
+		}
+		return simslim.WatchWithEvents(ctx, p, cmd.Duration("interval"), nil, events)
+	}
 	report := simslim.Reporter(func(msg string) { fmt.Fprintln(os.Stderr, msg) })
 	sets := append([]string{"default", "testing"}, simslim.ExtraDeviceSetTokens()...)
-	fmt.Fprintf(os.Stderr, "Watching device sets [%s]; slimming each simulator no-reboot as it boots. Ctrl-C to stop.\n", strings.Join(sets, ", "))
+	fmt.Fprintf(os.Stderr, "Watching device sets [%s]; slimming each simulator before it boots where its runtime allows, and no-reboot as it boots. Ctrl-C to stop.\n", strings.Join(sets, ", "))
 	return simslim.Watch(ctx, p, cmd.Duration("interval"), report)
 }
 
@@ -911,6 +923,101 @@ func cmdOff(ctx context.Context, cmd *cli.Command) error {
 	return nil
 }
 
+// cmdEnable re-enables categories or daemons on a booted simulator without a
+// reboot; --save also records them in a profile file.
+func cmdEnable(ctx context.Context, cmd *cli.Command) error {
+	jsonOutput := cmd.Bool("json")
+	udid, ids, err := udidAndIDs(cmd.Args().Slice())
+	if err != nil {
+		return err
+	}
+	tctx, cancel := context.WithTimeout(ctx, simslim.BootTimeout)
+	defer cancel()
+	out, err := simslim.EnableServices(tctx, udid, ids, cmd.String("save"), progress(jsonOutput))
+	if err != nil {
+		return err
+	}
+	if jsonOutput {
+		return writeJSON(out)
+	}
+	if out.Live {
+		fmt.Printf("Enabled %d services on %s without a reboot.\n", len(out.Labels), udid)
+	}
+	if len(out.NotStarted) > 0 {
+		fmt.Printf("  launchd starts %d of them at the next boot, not in this one: %s\n", len(out.NotStarted), strings.Join(out.NotStarted, ", "))
+	}
+	printSaved(out)
+	return nil
+}
+
+// cmdDisable is the inverse of enable: it stops categories or daemons on a
+// booted simulator now, without a reboot; --save also removes them from a
+// profile file.
+func cmdDisable(ctx context.Context, cmd *cli.Command) error {
+	jsonOutput := cmd.Bool("json")
+	udid, ids, err := udidAndIDs(cmd.Args().Slice())
+	if err != nil {
+		return err
+	}
+	tctx, cancel := context.WithTimeout(ctx, simslim.BootTimeout)
+	defer cancel()
+	out, err := simslim.DisableServices(tctx, udid, ids, cmd.String("save"), progress(jsonOutput))
+	if err != nil {
+		return err
+	}
+	if jsonOutput {
+		return writeJSON(out)
+	}
+	switch {
+	case !out.Live:
+	case len(out.Labels) == 0:
+		fmt.Printf("Nothing to stop on %s.\n", udid)
+	default:
+		fmt.Printf("Stopped %d services on %s without a reboot.\n", len(out.Labels), udid)
+	}
+	if len(out.StillEnabled) > 0 {
+		fmt.Printf("  %d stay enabled for another fully enabled category or the platform: %s\n", len(out.StillEnabled), strings.Join(out.StillEnabled, ", "))
+	}
+	printSaved(out)
+	return nil
+}
+
+// printSaved closes enable and disable with what persists: the saved profile,
+// or a reminder that the next `on` or `watch` pass applies its profile again.
+func printSaved(out simslim.ServicesOutput) {
+	switch {
+	case out.Saved == "":
+		fmt.Println("This lasts until the next `on` or `watch` pass; pass --save <profile.json> to keep it in a profile.")
+	case out.Live:
+		fmt.Printf("Saved to %s. Apply it later with `simslim on %s --profile %s`.\n", out.Saved, out.UDID, out.Saved)
+	default:
+		fmt.Printf("Saved to %s; nothing was applied, the simulator is not booted. Apply it with `simslim on %s --profile %s`.\n", out.Saved, out.UDID, out.Saved)
+	}
+}
+
+// udidAndIDs reads `<udid> [ids...]`, where each ID argument may itself be a
+// comma-separated list, as in `simslim enable <udid> icloud,photos`. The
+// library says when the IDs are missing.
+func udidAndIDs(args []string) (string, []string, error) {
+	if len(args) == 0 {
+		return "", nil, fmt.Errorf("expected a simulator UDID (see `simslim list`), then category IDs or launchd labels (see `simslim profiles`)")
+	}
+	var ids []string
+	for _, arg := range args[1:] {
+		ids = append(ids, simslim.SplitList(arg)...)
+	}
+	return args[0], ids, nil
+}
+
+// progress reports to stderr, except under --json, where consumers reading a
+// combined stream must get clean JSON.
+func progress(jsonOutput bool) simslim.Reporter {
+	if jsonOutput {
+		return nil
+	}
+	return func(msg string) { fmt.Fprintln(os.Stderr, msg) }
+}
+
 func returnToShutdown(ctx context.Context, set, udid string) error {
 	shutdownCtx, cancel := context.WithTimeout(ctx, simslim.ShutdownTimeout)
 	defer cancel()
@@ -960,7 +1067,7 @@ func fatal(msg string) {
 }
 
 func usage() {
-	fmt.Print(`simslim runs more iOS simulators on the same Mac by disabling the
+	fmt.Print(`simslim runs more iOS, tvOS, watchOS, and visionOS simulators on the same Mac by disabling the
 background daemons a simulator does not need.
 
 USAGE
@@ -1000,8 +1107,25 @@ COMMANDS
   off <udid>           Restore a simulator to stock (re-enable + reboot)
       --preserve-boot-state
                        Return an initially shutdown simulator to shutdown
-  watch                Slim every simulator no-reboot as it boots, until Ctrl-C.
-                       The hook for xcodebuild parallel-testing clones, which are
+  enable <udid> <ids>  Re-enable categories or individual daemons on a booted
+                       simulator now, without a reboot. IDs are category IDs
+                       or launchd labels, comma- or space-separated. Like
+                       ` + "`on --no-reboot`" + `, it lasts until the next ` + "`on`" + ` or ` + "`watch`" + `
+                       pass applies its profile again
+      --save path      Also add them to this profile file ("except" for a
+                       category, "keep" for a daemon), creating it from the
+                       default profile if needed; on a simulator that is not
+                       booted, only the file changes
+  disable <udid> <ids> Stop categories or daemons on a booted simulator now,
+                       without a reboot. A daemon shared with another category
+                       that is fully enabled keeps running. To go back to a
+                       profile, run ` + "`on <udid> --no-reboot --profile path`" + `
+      --save path      Also remove them from this profile file
+  watch                Slim every simulator until Ctrl-C: a shut-down one before
+                       it boots (iOS/tvOS 18.5+, watchOS 11.5+, visionOS 2.5+),
+                       so even its first boot starts none of the profile's
+                       daemons, and every one no-reboot as it boots. The hook
+                       for xcodebuild parallel-testing clones, which are
                        created stock and deleted per run; point --set at the
                        parallel-testing device set
       --profile path   Apply a committed JSON profile (see below); mutually
@@ -1009,6 +1133,9 @@ COMMANDS
       --except ids     Leave these categories enabled (comma-separated)
       --keep labels    Keep these individual daemons running (comma-separated)
       --interval dur   How often to rescan for booting simulators (default 3s)
+      --json           One JSON object per event on stdout, a stable interface
+                       for wrappers: wait for "slimmed" after a boot before
+                       enabling services on it
   status <udid>        Report how slim a booted simulator is
       --dropped        Also list the disabled daemons grouped by category
   verify <udid>        Check that a booted simulator's disable overrides still
@@ -1045,11 +1172,15 @@ COMMANDS
   erase <udid>         Erase a simulator's apps, data, and settings
   delete <udid>        Permanently delete a simulator
       --json           Print machine-readable JSON (also supported by list,
-                       profiles, status, and simulator-management commands)
+                       profiles, status, verify, doctor, enable, disable, and
+                       simulator-management commands)
   version              Print the version
 
 Disabling is persistent (stored in the simulator's launchd overrides) and fully
 reversible with ` + "`simslim off`" + `. Deadlock-prone daemons are never touched.
+` + "`simslim enable`" + ` and ` + "`simslim disable`" + ` change a booted simulator live and keep
+no state; with --save they also edit a profile, the only record of a slim
+simulator, which ` + "`on`" + `, ` + "`watch`" + `, and ` + "`verify`" + ` read back.
 
 A ` + "`--profile`" + ` file is JSON you commit alongside your project and apply per run
 (for example a ci.json and a dev.json). Its "except" and "keep" arrays match the

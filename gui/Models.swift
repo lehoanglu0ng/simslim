@@ -12,9 +12,10 @@ struct SimulatorDevice: Decodable, Identifiable, Equatable {
   let name: String
   let state: String
   let osVersion: String
+  let platform: String?
   let managedDisabled: Int?
   let managedTotal: Int
-  /// False below iOS 18.5: a slim can only last the current boot session.
+  /// False below the platform's persistence cutoff: a slim only lasts the current boot session.
   let persistent: Bool
   let statusError: String?
   let memory: SimulatorMeasurement?
@@ -22,6 +23,15 @@ struct SimulatorDevice: Decodable, Identifiable, Equatable {
 
   var id: String { udid }
   var isBooted: Bool { state == "Booted" }
+  var runtimeName: String { "\(platform ?? "iOS") \(osVersion)" }
+  var deviceSymbol: String {
+    switch platform {
+    case "tvOS": return "appletv"
+    case "watchOS": return "applewatch"
+    case "visionOS": return "visionpro"
+    default: return "iphone"
+    }
+  }
 }
 
 struct SlimCategory: Decodable, Identifiable, Equatable {

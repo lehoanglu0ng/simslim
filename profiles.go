@@ -40,6 +40,10 @@ var Categories = []Category{
 			"com.apple.PosterBoard",
 			"com.apple.chronod",
 			"com.apple.liveactivitiesd",
+			// chronod runs the stock Maps widget, which retries its navd
+			// connection in a tight loop while navd is down and floods the
+			// unified log; shared with the connectivity category.
+			"com.apple.navd",
 		},
 	},
 	{
@@ -49,7 +53,6 @@ var Categories = []Category{
 		Downside:       "Siri, speech features, and Apple Intelligence services are unavailable.",
 		ApproxMemoryMB: 265,
 		Labels: []string{
-			"com.apple.assistantd",
 			"com.apple.assistant_cdmd",
 			"com.apple.assistant_service",
 			"com.apple.siriactionsd",
@@ -79,12 +82,18 @@ var Categories = []Category{
 			"com.apple.parsec-fbf",
 			"com.apple.proactiveeventtrackerd",
 		},
+		AlwaysEnabled: []AlwaysEnabledService{
+			{
+				Label:  "com.apple.assistantd",
+				Reason: "Hosts the dictation service; without it the system Spotlight app leaks memory.",
+			},
+		},
 	},
 	{
 		ID:             "search",
 		Name:           "Spotlight & Search",
 		Description:    "On-device Spotlight and in-Settings search services.",
-		Downside:       "Spotlight and Settings search return no results.",
+		Downside:       "Spotlight and Settings search return no results, and Recents in Files and the document picker fails to load.",
 		ApproxMemoryMB: 50,
 		Labels: []string{
 			"com.apple.searchd",
@@ -260,9 +269,14 @@ var Categories = []Category{
 			"com.apple.MapKit.SnapshotService",
 			"com.apple.jetpackassetd",
 			"com.apple.tipsd",
-			"com.apple.gamed",
 			"com.apple.gamesaved",
 			"com.apple.GameController.gamecontrollerd",
+		},
+		AlwaysEnabled: []AlwaysEnabledService{
+			{
+				Label:  "com.apple.gamed",
+				Reason: "Required for timely XCUITest app launches (DTServiceHub / GameKit).",
+			},
 		},
 	},
 	{
@@ -328,11 +342,23 @@ var Categories = []Category{
 		},
 	},
 	{
+		ID:             "mdm",
+		Name:           "Device Management",
+		Description:    "Declarative device management and managed asset services.",
+		Downside:       "Declarative device management, and MDM or configuration-profile workflows that use it, will not work.",
+		ApproxMemoryMB: 10,
+		Labels: []string{
+			"com.apple.remotemanagementd",
+			"com.apple.RemoteManagementAgent",
+			"com.apple.managedassetsd",
+		},
+	},
+	{
 		ID:             "other",
 		Name:           "Other Background Services",
-		Description:    "Wallet, business services, assets, and miscellaneous background daemons.",
-		Downside:       "Wallet, merchant, business, asset, and miscellaneous background services are unavailable.",
-		ApproxMemoryMB: 195,
+		Description:    "Wallet, App Clips, business services, assets, and miscellaneous background daemons.",
+		Downside:       "Wallet, App Clips, accessibility asset downloads, merchant, business, and miscellaneous background services are unavailable.",
+		ApproxMemoryMB: 225,
 		Labels: []string{
 			"com.apple.financed",
 			"com.apple.passd",
@@ -348,6 +374,8 @@ var Categories = []Category{
 			"com.apple.countryd",
 			"com.apple.mobileassetd",
 			"com.apple.managedconfiguration.passcodenagd",
+			"com.apple.accessibility.axassetsd",
+			"com.apple.ClipServices.clipserviced",
 		},
 	},
 }
@@ -404,6 +432,32 @@ func (p Profile) Desired() map[string]bool {
 	}
 	for l := range p.Keep {
 		delete(set, l)
+	}
+	return set
+}
+
+// DesiredForDevice applies platform-specific service requirements to a profile.
+// Desired remains the platform-independent catalog for profile editors.
+func (p Profile) DesiredForDevice(d Device) map[string]bool {
+	return desiredForDevice(d, p.Desired())
+}
+
+func desiredForDevice(d Device, desired map[string]bool) map[string]bool {
+	set := make(map[string]bool, len(desired))
+	for label, disabled := range desired {
+		// watchOS 26.5 re-enables homed after startup, even when launchd
+		// initially honours the override. Keep it enabled rather than report
+		// a full slim that drifts as soon as the Watch finishes starting up.
+		if d.PlatformName() == "watchOS" && label == "com.apple.homed" {
+			continue
+		}
+		// visionOS serves the simulated surroundings as mobile assets.
+		// Without mobileassetd the device boots into a black space: the
+		// Home View icons float in the dark, and apps still launch.
+		if d.PlatformName() == "visionOS" && label == "com.apple.mobileassetd" {
+			continue
+		}
+		set[label] = disabled
 	}
 	return set
 }

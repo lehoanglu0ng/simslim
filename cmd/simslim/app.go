@@ -60,13 +60,22 @@ func newApp() *cli.Command {
 			&cli.StringFlag{Name: "profile", Usage: "apply a JSON profile file (mutually exclusive with --except/--keep)"},
 			&cli.StringFlag{Name: "except", Usage: "comma-separated category IDs to leave fully enabled (see `simslim profiles`)"},
 			&cli.StringFlag{Name: "keep", Usage: "comma-separated launchd labels to keep running"},
-			&cli.BoolFlag{Name: "no-reboot", Usage: "stop the daemons in the current boot session without a reboot (works on every runtime; lost at the next reboot on iOS < 18.5)"},
+			&cli.BoolFlag{Name: "no-reboot", Usage: "stop the daemons in the current boot session without a reboot (works on every runtime; lost at the next reboot on iOS/tvOS < 18.5, watchOS < 11.5, and visionOS < 2.5)"},
 			preserveBootStateFlag("return an initially shutdown simulator to shutdown after reconfiguration"),
 		}, Action: cmdOn},
 		{Name: "off", Flags: []cli.Flag{
 			preserveBootStateFlag("return an initially shutdown simulator to shutdown after reconfiguration"),
 		}, Action: cmdOff},
+		{Name: "enable", Flags: []cli.Flag{
+			jsonFlag(),
+			&cli.StringFlag{Name: "save", Usage: "also add the services to this profile file, creating it if needed"},
+		}, Action: cmdEnable},
+		{Name: "disable", Flags: []cli.Flag{
+			jsonFlag(),
+			&cli.StringFlag{Name: "save", Usage: "also remove the services from this profile file, creating it if needed"},
+		}, Action: cmdDisable},
 		{Name: "watch", Flags: []cli.Flag{
+			&cli.BoolFlag{Name: "json", Usage: "print one JSON object per event on stdout (slimming, slimmed, failed, stopped, slimmed_before_boot) instead of log lines"},
 			&cli.StringFlag{Name: "profile", Usage: "apply a JSON profile file (mutually exclusive with --except/--keep)"},
 			&cli.StringFlag{Name: "except", Usage: "comma-separated category IDs to leave fully enabled (see `simslim profiles`)"},
 			&cli.StringFlag{Name: "keep", Usage: "comma-separated launchd labels to keep running"},

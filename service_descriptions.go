@@ -11,7 +11,6 @@ var serviceDescriptionByLabel = map[string]string{
 	"com.apple.liveactivitiesd": "Updates Live Activities and Dynamic Island content.",
 
 	// Siri & Intelligence
-	"com.apple.assistantd":             "Coordinates Siri requests and assistant state.",
 	"com.apple.assistant_cdmd":         "Routes commands and intents submitted to Siri.",
 	"com.apple.assistant_service":      "Provides supporting services for Siri requests.",
 	"com.apple.siriactionsd":           "Executes Siri actions and App Intents.",
@@ -121,7 +120,7 @@ var serviceDescriptionByLabel = map[string]string{
 	"com.apple.healtheventsd":        "Processes health events and related notifications.",
 	"com.apple.healthrecordsd":       "Synchronizes clinical health records.",
 	"com.apple.finhealthd":           "Analyzes Wallet transactions and financial-health data.",
-	"com.apple.homed":                "Manages HomeKit accessories, rooms, and automations.",
+	"com.apple.homed":                "Manages HomeKit accessories, rooms, and automations. Kept enabled on watchOS.",
 	"com.apple.homeeventsd":          "Processes HomeKit events and automation triggers.",
 	"com.apple.fitcore":              "Runs Apple Fitness content and background services.",
 	"com.apple.fitcore.session":      "Manages active Apple Fitness sessions.",
@@ -150,7 +149,6 @@ var serviceDescriptionByLabel = map[string]string{
 	"com.apple.MapKit.SnapshotService":         "Renders static map snapshots for apps.",
 	"com.apple.jetpackassetd":                  "Downloads assets used by Apple content apps.",
 	"com.apple.tipsd":                          "Selects and refreshes content for the Tips app.",
-	"com.apple.gamed":                          "Provides Game Center accounts and multiplayer state.",
 	"com.apple.gamesaved":                      "Synchronizes supported game save data.",
 	"com.apple.GameController.gamecontrollerd": "Discovers controllers and routes their input.",
 
@@ -189,6 +187,11 @@ var serviceDescriptionByLabel = map[string]string{
 	"com.apple.purplebuddy.budd":      "Maintains Setup Assistant completion state.",
 	"com.apple.devicecheckd":          "Provides DeviceCheck and app-attestation services.",
 
+	// Device Management
+	"com.apple.remotemanagementd":     "Applies declarative device management configurations.",
+	"com.apple.RemoteManagementAgent": "Applies per-user declarative management configurations.",
+	"com.apple.managedassetsd":        "Downloads assets referenced by management declarations.",
+
 	// Other Background Services
 	"com.apple.financed":                          "Provides Wallet transaction and finance services.",
 	"com.apple.passd":                             "Manages Wallet passes and Apple Pay state.",
@@ -202,8 +205,10 @@ var serviceDescriptionByLabel = map[string]string{
 	"com.apple.storagedatad":                      "Calculates storage usage shown by the system.",
 	"com.apple.StatusKitAgent":                    "Shares Focus, presence, and status between devices.",
 	"com.apple.countryd":                          "Determines regional availability for system features.",
-	"com.apple.mobileassetd":                      "Downloads and manages system asset packages.",
+	"com.apple.mobileassetd":                      "Downloads and manages system asset packages. Kept enabled on visionOS.",
 	"com.apple.managedconfiguration.passcodenagd": "Enforces managed passcode requirements.",
+	"com.apple.accessibility.axassetsd":           "Downloads accessibility assets such as speech voices.",
+	"com.apple.ClipServices.clipserviced":         "Downloads, launches, and manages App Clips.",
 }
 
 func init() {
